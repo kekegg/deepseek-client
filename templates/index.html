@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek Chat with Ollama</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            height: 100vh;  /* Make sure body takes full height */
+            overflow: hidden;  /* Prevent scrolling on body */
+        }
+        
+        /* Left Panel Styles */
+        .history-panel {
+            width: 250px;
+            background: #f5f5f5;
+            height: 100vh;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            flex-shrink: 0;  /* Prevent panel from shrinking */
+            box-sizing: border-box;  /* Include padding in width */
+        }
+        
+        .history-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            background: white;  /* Make items more visible */
+        }
+        
+        .history-item:hover {
+            background: #e0e0e0;
+        }
+        
+        .history-item.active {
+            background: #aecae8;
+            color: white;
+        }
+        
+        /* Main Chat Area Styles */
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            height: 100vh;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        
+        .chat-box {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        /* Existing styles */
+        #response {
+            white-space: pre-wrap;
+            min-height: 100px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            color: #333;  /* Dark gray color for better readability */
+            font-size: 0.95em;  /* Slightly smaller font size */
+        }
+        
+        /* Style for code blocks in response */
+        #response pre {
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        #response code {
+            font-family: 'Courier New', Courier, monospace;
+        }
+        
+        #loading {
+            display: none;
+            color: #666;
+            margin: 10px 0;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:disabled {
+            background: #cccccc;
+        }
+        
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .message.user {
+            background-color: #f0f0f0;
+        }
+        
+        .message.assistant {
+            background-color: #e3f2fd;
+        }
+        
+        #chatHistory {
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        
+        think {
+            font-size: 0.9em;
+            color: #666;
+            display: block;
+            margin: 5px 0;
+            font-style: italic;
+        }
+        
+        #newChatBtn,
+        #loadHistoriesBtn {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        #loadHistoriesBtn {
+            background: #28a745;  /* Different color for distinction */
+        }
+        
+        #newChatBtn:hover {
+            background: #0056b3;
+        }
+        
+        #loadHistoriesBtn:hover {
+            background: #218838;
+        }
+        
+        .history-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .history-date {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Add MathJax -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            startup: {
+                pageReady: () => {
+                    return MathJax.startup.defaultPageReady();
+                }
+            }
+        };
+    </script>
+</head>
+<body>
+    <!-- Left History Panel -->
+    <div class="history-panel">
+        <button id="newChatBtn" onclick="startNewChat()">New Chat</button>
+        <button id="loadHistoriesBtn" onclick="loadAllHistories()">Load Histories</button>
+        <div id="historyList"></div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="main-content">
+        <div class="chat-box">
+            <select id="modelSelect">
+                <option value="deepseek-r1:8b">DeepSeek-R1-8b</option>
+                <option value="deepseek-r1:1.5b">DeepSeek-R1-1.5b</option>
+                <option value="deepseek-coder">DeepSeek-Coder</option>
+                <option value="deepseek-r1:32b">DeepSeek-R1-32b</option>
+                <option value="deepseek-r1:70b">DeepSeek-R1-70b</option>
+            </select>
+            
+            <h1>DeepSeek Chat (Ollama)</h1>
+            <div id="chatHistory"></div>
+            <textarea 
+                id="input" 
+                rows="4" 
+                placeholder="输入你的问题..."
+            ></textarea>
+            <div>
+                <button onclick="generateResponse()" id="submitBtn">发送</button>
+                <div id="loading">正在生成响应...</div>
+            </div>
+            <h3>响应：</h3>
+            <div id="response"></div>
+        </div>
+    </div>
+
+    <script>
+        let messages = [];
+        let chatHistories = [];
+        let currentChatId = null;
+
+        async function loadAllHistories() {
+            try {
+                console.log("Loading histories..."); // Debug log
+                const response = await fetch('/api/histories');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                chatHistories = Array.isArray(data) ? data : [];
+                
+                // If no histories exist, create a new chat
+                if (chatHistories.length === 0) {
+                    console.log("No histories found, creating new chat"); // Debug log
+                    await startNewChat();
+                    return;
+                } else {
+                    console.log("Histories loaded:", chatHistories); // Debug log
+                }
+                
+                displayHistoryList();
+                
+                // Load the most recent chat by default
+                await loadChat(chatHistories[0].id);
+                
+            } catch (error) {
+                console.error('Error loading histories:', error);
+                await startNewChat();
+            }
+        }
+
+        function displayHistoryList() {
+            console.log("Displaying history list, current histories:", chatHistories);
+            const historyList = document.getElementById('historyList');
+            if (!historyList) {
+                console.error("History list element not found!");
+                return;
+            }
+            
+            const historyHTML = chatHistories.map(chat => {
+                return `
+                    <div class="history-item ${chat.id === currentChatId ? 'active' : ''}" 
+                         onclick="loadChat('${chat.id}')">
+                        <div class="history-title">${getHistoryTitle(chat.messages)}</div>
+                        <div class="history-date">${new Date(chat.timestamp).toLocaleString()}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            historyList.innerHTML = historyHTML;
+        }
+
+        function getHistoryTitle(messages) {
+            if (!messages || messages.length === 0) return "New Chat";
+            // Get the first user message as the title
+            const firstUserMessage = messages.find(m => m.role === 'user');
+            if (firstUserMessage) {
+                return firstUserMessage.content.slice(0, 30) + "...";
+            }
+            return "New Chat";
+        }
+
+        async function loadChat(chatId) {
+            console.log("Loading chat:", chatId);
+            currentChatId = chatId;
+            
+            const chat = chatHistories.find(c => c.id === chatId);
+            if (chat) {
+                console.log("Found chat:", chat); // Debug log
+                messages = [...chat.messages];
+                console.log("Loaded messages:", messages); // Debug log
+                
+                // Clear both response box and chat history
+                responseBox.innerHTML = '';
+                displayChatHistory();
+                displayHistoryList();
+            } else {
+                console.error("Chat not found:", chatId);
+            }
+        }
+
+        async function startNewChat() {
+            console.log("Starting new chat");
+            const newChat = {
+                id: Date.now().toString(),
+                messages: [],
+                timestamp: new Date().toISOString()
+            };
+            chatHistories.unshift(newChat);
+            await saveAllHistories();
+            await loadChat(newChat.id);
+            
+            // Clear input and response when starting new chat
+            inputField.value = '';
+            responseBox.innerHTML = '';
+        }
+
+        async function saveAllHistories() {
+            try {
+                const currentChat = chatHistories.find(c => c.id === currentChatId);
+                if (currentChat) {
+                    currentChat.messages = [...messages];
+                    currentChat.timestamp = new Date().toISOString();
+                }
+                
+                // Sort histories by timestamp, most recent first
+                chatHistories.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                // This calls handle_histories POST
+                const response = await fetch('/api/histories', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(chatHistories)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                console.log("Histories saved successfully"); // Debug log
+            } catch (error) {
+                console.error('Error saving histories:', error);
+            }
+        }
+
+        const responseBox = document.getElementById('response');
+        const loading = document.getElementById('loading');
+        const submitBtn = document.getElementById('submitBtn');
+        const chatHistoryDiv = document.getElementById('chatHistory');
+        const inputField = document.getElementById('input');
+        
+        // Function to display chat history
+        function displayChatHistory() {
+            // Sort messages by timestamp before displaying
+            const sortedMessages = [...messages].sort((a, b) => {
+                if (a.timestamp && b.timestamp) {
+                    return new Date(a.timestamp) - new Date(b.timestamp);
+                }
+                return 0;
+            });
+
+            chatHistoryDiv.innerHTML = sortedMessages.map(msg => {
+                let content = msg.content;
+                
+                // For assistant messages, apply markdown and math rendering
+                if (msg.role === 'assistant') {
+                    // First handle think tags with markdown
+                    content = content.replace(/<think>(.*?)<\/think>/g, (match, p1) => {
+                        return `<think>${marked.parse(p1)}</think>`;
+                    });
+                    
+                    // Then handle the rest of the content with markdown
+                    content = content.replace(/<think>.*?<\/think>/g, match => match)  // Temporarily preserve think tags
+                                   .replace(/[^<>]+|<.*?>/g, match => {
+                                       return match.startsWith('<') ? match : marked.parse(match);
+                                   });
+                }
+                
+                return `
+                    <div class="message ${msg.role}">
+                        <strong>${msg.role}:</strong>
+                        <div>${content}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+            
+            // Trigger MathJax to render math expressions
+            if (window.MathJax) {
+                MathJax.typesetPromise([chatHistoryDiv]);
+            }
+        }
+
+        // Load chat history on page load
+        displayChatHistory();
+
+        async function saveCurrentChat() {
+            try {
+                const currentChat = chatHistories.find(c => c.id === currentChatId);
+                if (!currentChat) {
+                    console.error("No current chat found to save");
+                    return;
+                }
+
+                // Update the current chat with latest messages
+                currentChat.messages = [...messages];
+                currentChat.timestamp = new Date().toISOString();
+                
+                console.log("Saving chat:", currentChat); // Debug log
+                
+                // Only send the current chat to be saved
+                const response = await fetch('/api/histories', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify([currentChat])  // Send as array with single chat
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                console.log("Chat saved successfully"); // Debug log
+                
+                // Update the history list to reflect the new timestamp
+                displayHistoryList();
+            } catch (error) {
+                console.error('Error saving chat:', error);
+            }
+        }
+
+        async function generateResponse() {
+            const prompt = inputField.value.trim();
+            if (!prompt) return;
+
+            messages.push({ 
+                role: 'user', 
+                content: prompt,
+                timestamp: new Date().toISOString()  // Add timestamp
+            });
+            displayChatHistory();
+            await saveCurrentChat();  // Save after user message
+
+            // Reset input and update UI state
+            inputField.value = '';
+            loading.style.display = 'block';
+            submitBtn.disabled = true;
+
+            try {
+                const selectedModel = document.getElementById('modelSelect').value;
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        model: selectedModel,
+                        messages: messages
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantResponse = '';
+
+                while (true) {
+                    const {value, done} = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const content = line.slice(6).trim();
+                            if (content) {
+                                try {
+                                    assistantResponse += JSON.parse(content);
+                                    responseBox.innerHTML = marked.parse(assistantResponse);
+                                    responseBox.scrollTop = responseBox.scrollHeight;
+                                } catch (e) {
+                                    console.error('Error parsing JSON:', e, 'Content:', content);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Add assistant response to current chat
+                if (assistantResponse) {
+                    messages.push({ 
+                        role: 'assistant', 
+                        content: assistantResponse,
+                        timestamp: new Date().toISOString()  // Add timestamp
+                    });
+                    displayChatHistory();
+                    
+                    responseBox.innerHTML = '';
+                    await saveCurrentChat();  // Save after assistant response
+                    displayHistoryList(); // Refresh the history list to show updated preview
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                responseBox.innerHTML = `Error: ${error.message}`;
+            } finally {
+                loading.style.display = 'none';
+                submitBtn.disabled = false;
+            }
+        }
+
+        // Add event listener for Enter key
+        inputField.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {  // Submit on Enter, but not with Shift+Enter
+                e.preventDefault();  // Prevent default to avoid newline
+                if (!submitBtn.disabled) {  // Only submit if button is not disabled
+                    submitBtn.click();  // Simulate button click instead of directly calling generateResponse
+                }
+            }
+        });
+
+        // Make sure histories are loaded both when DOM is ready and when window loads
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM Content Loaded, loading histories..."); // Debug log
+            loadAllHistories();
+        });
+
+        window.addEventListener('load', () => {
+            console.log("Window loaded, loading histories..."); // Debug log
+            loadAllHistories();
+        });
+    </script>
+</body>
+</html>
