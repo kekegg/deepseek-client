@@ -9,3 +9,5 @@ python app.py
 
 Then in the browser:
 127.0.0.0.1:5000
+
+!(Screenshot from 2025-02-01 17-20-16.png)
